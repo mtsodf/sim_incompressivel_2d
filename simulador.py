@@ -4,34 +4,59 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 
 
-def plot(vetor, nx, ny):
-    F = plt.figure(1, (5.5, 3.5))
+def plot(modelo):
+
+    nx = modelo.nx
+    ny = modelo.ny
+
+    fig = plt.figure(1, (8,12))
+    
     my_cmap = plt.cm.get_cmap('seismic')
-    grid = ImageGrid(F, 111,  # similar to subplot(111)
-                     nrows_ncols=(1, 1),
-                     axes_pad=0.1,
+    grid = ImageGrid(fig, 111,  # similar to subplot(111)
+                     nrows_ncols=(2, 2),
+                     axes_pad=0.4,
                      add_all=True,
                      label_mode="L",
                      cbar_location="right",
-                     cbar_mode="single",
+                     cbar_mode="each"
                      )
 
 
 
-    g = np.zeros([ny, nx])
+    pressao = np.zeros([ny, nx])
+    kx = np.zeros([ny, nx])
+    ky = np.zeros([ny, nx])
 
     ind = 0
     for j in range(ny):
         for i in range(nx):
-            g[j, i] = vetor[ind]
+            pressao[j, i] = modelo.x[ind]
+            kx[j,i] = modelo.kx[ind]
+            ky[j,i] = modelo.ky[ind]
             ind += 1
 
-    im1 = g
 
-    vmin, vmax = g.min(), g.max()
+
+    im1 = pressao
+    vmin, vmax = im1.min(), im1.max()
     ax = grid[0]
+    ax.set_title("Pressao")
     im = ax.imshow(im1, origin="lower", vmin=vmin, vmax=vmax, cmap=my_cmap, interpolation="nearest")
     grid.cbar_axes[0].colorbar(im)
+
+    im1 = kx
+    vmin, vmax = im1.min(), im1.max()
+    ax = grid[2]
+    ax.set_title("Permeabilidade X")
+    im = ax.imshow(im1, origin="lower", vmin=vmin, vmax=vmax, cmap=my_cmap, interpolation="nearest")
+    grid.cbar_axes[2].colorbar(im)
+
+    im1 = ky
+    vmin, vmax = im1.min(), im1.max()
+    ax = grid[3]
+    ax.set_title("Permeabilidade Y")
+    im = ax.imshow(im1, origin="lower", vmin=vmin, vmax=vmax, cmap=my_cmap, interpolation="nearest")
+    grid.cbar_axes[3].colorbar(im)
 
     plt.draw()
     plt.show()
@@ -284,5 +309,5 @@ modelo.set_zero_matriz()
 modelo.solve()
 
 
-plot(modelo.x, modelo.nx, modelo.ny)
+plot(modelo)
 
