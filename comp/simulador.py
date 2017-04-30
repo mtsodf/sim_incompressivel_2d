@@ -26,6 +26,24 @@ class Fluido(object):
     def densidade(self, pres):
         return self.rhoref*(1 + self.compf*(pres - self.pref))
 
+    #Derivada da densidade pela pressao
+    def d_densidade(self, pres):
+        return self.rhoref*self.compf
+
+    def mobilidade_massica(self, pres):
+        return self.densidade(pres)/self.viscosidade(pres)
+
+    #Derivada da mobilidade massica
+    def d_mobilidade_massica(self, pres):
+        des = self.densidade(pres)
+        visco = self.viscosidade(pres)
+
+        r = des*self.vispr - visco*self.d_densidade(pres)
+
+        r /= visco*visco
+
+        return r
+
     def __str__(self):
         s =  "Dados do Fluido\n"
         s += "\t Viscosidade Ref = %f cp\n" % self.visref
@@ -34,8 +52,6 @@ class Fluido(object):
 
 
         return s
-
-
 
 
 class Modelo(object):
@@ -109,42 +125,88 @@ class Modelo(object):
         return poro*(1+self.compr*(p-self.pref))
 
 
-    def termo_acumulacao(self, i, j, k, p):
+    def termo_acumulacao(self, i, j, k):
+
         pass
 
+    def volume(self, i, j, k):
+        return self.dx[i]*self.dy[j]*self.dz[k]
+
+    def calc_residuo(self, pres1, pres0, dt):
+
+        for ind in xrange(self.numcels):
+            i, j, k = self.ind_2d(ind)
+            
+
+            #Calculo do termo de acumulacao
+            vol = self.volume(i, j, k)
+
+            p1 = pres1[ind]
+            p0 = pres0[ind]
+
+            por1 = self.porosidade(i, j, k, p1)
+            por0 = self.porosidade(i, j, k, p0)
+
+            rho1 = self.fluido.densidade(p1)
+            rho0 = self.fluido.densidade(p0)
+
+            acum = vol * (rho1*por1 - rho0*por0) / dt
+
+            #Transmissibilidades
+            trans = 0
+
+            for vi, vj, vk in self.vizinhos(i,j,k):
+                pass
 
 
+    def vizinhos(self, i, j, k):
+        v = []
+        if(i > 0):
+            v.append((i-1,j,k))
+        if(i < self.nx -1):
+            v.append((i+1,j,k))
+        if(j > 0):
+            v.append((i,j-1,k))
+        if(j<self.ny-1):
+            v.append((i,j+1,k))
+        if(k > 0):
+            v.append((i,j,k-1))
+        if(k<self.nz-1):
+            v.append((i,j,k+1))
 
-    def calcTrans(self, i, j, dir):
+        return v
+
+
+    def calcTrans(self, i, j, k, dir):
         visco = self.visco
         esp = self.esp
         if dir == "X+":
-            k1 = self.kx[self.twod_ind(i,j)]
-            k2 = self.kx[self.twod_ind(i+1,j)]
+            k1 = self.kx[self.twod_ind(i,j,k)]
+            k2 = self.kx[self.twod_ind(i+1,j,k)]
             d1 = self.dx[i]
             d2 = self.dx[i+1]
             a1 = self.dy[j]
             return trans(k1,k2,d1,d2,visco,a1,esp)
 
         if dir == "X-":
-            k1 = self.kx[self.twod_ind(i,j)]
-            k2 = self.kx[self.twod_ind(i-1,j)]
+            k1 = self.kx[self.twod_ind(i,j,k)]
+            k2 = self.kx[self.twod_ind(i-1,j,k)]
             d1 = self.dx[i]
             d2 = self.dx[i-1]
             a1 = self.dy[j]
             return trans(k1,k2,d1,d2,visco,a1,esp)
 
         if dir == "Y+":
-            k1 = self.ky[self.twod_ind(i,j)]
-            k2 = self.ky[self.twod_ind(i,j+1)]
+            k1 = self.ky[self.twod_ind(i,j,k)]
+            k2 = self.ky[self.twod_ind(i,j+1,k)]
             d1 = self.dy[j]
             d2 = self.dy[j+1]
             a1 = self.dx[i]
             return trans(k1,k2,d1,d2,visco,a1,esp)
 
         if dir == "Y-":
-            k1 = self.ky[self.twod_ind(i,j)]
-            k2 = self.ky[self.twod_ind(i,j-1)]
+            k1 = self.ky[self.twod_ind(i,j,k)]
+            k2 = self.ky[self.twod_ind(i,j-1,k)]
             d1 = self.dy[j]
             d2 = self.dy[j-1]
             a1 = self.dx[i]
@@ -225,7 +287,6 @@ class Modelo(object):
 
         x = x - np.mean(x)
         self.x = x
-
 
 
 class LeitorDeArquivo(object):
