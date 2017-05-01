@@ -28,7 +28,7 @@ class Fluido(object):
         return self.rhoref*(1 + self.compf*(pres - self.pref))
 
     #Derivada da densidade pela pressao
-    def d_densidade(self, pres):
+    def d_densidade(self, pres=None):
         return self.rhoref*self.compf
 
     def mobilidade_massica(self, pres):
@@ -158,6 +158,10 @@ class Modelo(object):
 
         return poro*(1+self.compr*(p-self.pref))
 
+    def d_porosidade(self,i,j,k,pres=None):
+        poro = self.poro[self.twod_ind(i, j, k)]
+        return poro * self.compr
+
 
     def termo_acumulacao(self, i, j, k):
 
@@ -167,6 +171,111 @@ class Modelo(object):
     def volume(self, i, j, k):
         return self.dx[i]*self.dy[j]*self.dz[k]
 
+    def calc_jacob(self, pres1, pres0, dt):
+        A = np.zeros((self.numcels, self.numcels))
+
+        for ind in xrange(self.numcels):
+
+            #Derivada do termo de acumulacao
+
+            i, j, k = self.ind_2d(ind)
+            vol = self.volume(i,j,k)
+
+            p1 = pres1[ind]
+            p0 = pres0[ind]
+
+            porosidade = self.porosidade(i,j,k,p1)
+
+            
+
+            d_acum = (vol*dt)* (self.d_porosidade(i,j,k) * self.fluido.densidade(p1) + porosidade*self.fluido.d_densidade(p1))
+
+            A[ind,ind] += d_acum
+
+
+
+            #TODO colocar termo gravitacional
+            if(i > 0):
+                indviz = self.twod_ind(i-1,j,k)
+                pviz = pres1[indviz]
+
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "I-")
+
+                trans += transmissibilidade*(p1 - pviz)
+                #Derivada em relacao a p(n+1,i)
+                A[ind, ind] += transmissibilidade*(self.fluido.d_mobilidade_massica(p1)*(p1-pviz) 
+                                                    + self.fluido.mobilidade_massica(p1))
+
+                #TODO verificar se a mobilidade eh calculada na celula
+                A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
+
+
+            if(i < self.nx -1):
+                indviz = self.twod_ind(i+1,j,k)
+                pviz = pres1[indviz]
+
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "I+")
+
+                #Derivada em relacao a p(n+1,i)
+                A[ind, ind] += transmissibilidade*(self.fluido.d_mobilidade_massica(p1)*(p1-pviz) 
+                                                    + self.fluido.mobilidade_massica(p1))
+
+                #TODO verificar se a mobilidade eh calculada na celula
+                A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
+
+            if(j > 0):
+                indviz = self.twod_ind(i,j-1,k)
+                pviz = pres1[indviz]
+
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "J-")
+
+                #Derivada em relacao a p(n+1,i)
+                A[ind, ind] += transmissibilidade*(self.fluido.d_mobilidade_massica(p1)*(p1-pviz) 
+                                                    + self.fluido.mobilidade_massica(p1))
+
+                #TODO verificar se a mobilidade eh calculada na celula
+                A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
+
+            if(j<self.ny-1):
+                indviz = self.twod_ind(i,j+1,k)
+                pviz = pres1[indviz]
+
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "J+")
+
+                #Derivada em relacao a p(n+1,i)
+                A[ind, ind] += transmissibilidade*(self.fluido.d_mobilidade_massica(p1)*(p1-pviz) 
+                                                    + self.fluido.mobilidade_massica(p1))
+
+                #TODO verificar se a mobilidade eh calculada na celula
+                A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
+
+            if(k > 0):
+                indviz = self.twod_ind(i,j,k-1)
+                pviz = pres1[indviz]
+
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "K-")
+
+                #Derivada em relacao a p(n+1,i)
+                A[ind, ind] += transmissibilidade*(self.fluido.d_mobilidade_massica(p1)*(p1-pviz) 
+                                                    + self.fluido.mobilidade_massica(p1))
+
+                #TODO verificar se a mobilidade eh calculada na celula
+                A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
+            
+            if(k<self.nz-1):
+                indviz = self.twod_ind(i,j,k+1)
+                pviz = pres1[indviz]
+
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "K+")
+
+                #Derivada em relacao a p(n+1,i)
+                A[ind, ind] += transmissibilidade*(self.fluido.d_mobilidade_massica(p1)*(p1-pviz) 
+                                                    + self.fluido.mobilidade_massica(p1))
+
+                #TODO verificar se a mobilidade eh calculada na celula
+                A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
+
+        print A
 
     def calc_residuo(self, pres1, pres0, dt):
 
@@ -221,9 +330,10 @@ class Modelo(object):
                 trans += transmissibilidade*(p1 - pres1[self.twod_ind(i,j,k+1)])
 
 
-            #TODO adicionar o termo dos pocos
+            
             r.append(trans + acum)
 
+        #TODO adicionar o termo dos pocos
         for poco in self.pocos:
             i,j,k=poco.nx, poco.ny, poco.nz
 
@@ -239,6 +349,7 @@ class Modelo(object):
 
        print self.calc_residuo(self.pres[0], self.pres[0], 10)
 
+       self.calc_jacob(self.pres[0], self.pres[0], 10)
 
     def vizinhos(self, i, j, k):
         v = []
