@@ -5,9 +5,9 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 
 
 
-def trans(k1,k2,d1,d2,visco1,visco2,area):
-    denominador = visco1*d1/k1
-    denominador += visco2*d2/k2
+def trans(k1,k2,d1,d2,area):
+    denominador = d1/k1
+    denominador += d2/k2
 
     return (d1+d2) * area / denominador
 
@@ -21,7 +21,7 @@ class Fluido(object):
         self.vispr = vispr
 
     def viscosidade(self, pres):
-        return self.viscoref +  self.vispr*(pres - self.pref)
+        return self.visref +  self.vispr*(pres - self.pref)
 
     def densidade(self, pres):
         return self.rhoref*(1 + self.compf*(pres - self.pref))
@@ -61,16 +61,18 @@ class Modelo(object):
 
         #Lendo Caracteristicas da Malha
         self.nx, self.ny, self.nz = Leitor.read_integers("DIM")
-        self.kx = Leitor.read_float("KX")
-        self.ky = Leitor.read_float("KY")
-        self.kz = Leitor.read_float("KZ")
-        self.dx = Leitor.read_float("DX")
-        self.dy = Leitor.read_float("DY")
-        self.dz = Leitor.read_float("DZ")
-        self.poro = Leitor.read_float("POR")
+        self.numcels = self.nx*self.ny*self.nz
+
+        self.kx = Leitor.read_float("KX", self.numcels)
+        self.ky = Leitor.read_float("KY", self.numcels)
+        self.kz = Leitor.read_float("KZ", self.numcels)
+        self.dx = Leitor.read_float("DX", self.nx)
+        self.dy = Leitor.read_float("DY", self.ny)
+        self.dz = Leitor.read_float("DZ", self.nz)
+        self.poro = Leitor.read_float("POR", self.numcels)
         self.pref = Leitor.read_float("PREF")[0]
         self.pres = []
-        self.pres.append(Leitor.read_float("PRES"))
+        self.pres.append(Leitor.read_float("PRES", self.numcels))
 
 
         #Lendo Tempo
@@ -91,7 +93,7 @@ class Modelo(object):
         self.pocos = Leitor.read_pocos()
 
 
-        self.numcels = self.nx*self.ny*self.nz
+
 
 
     def print_modelo(self):
@@ -101,6 +103,7 @@ class Modelo(object):
 
     def twod_ind(self, i, j, k):
         return i+j*self.nx+k*(self.nx*self.ny)
+
 
     def ind_2d(self, ind):
         k = ind / (self.nx * self.ny)
@@ -119,8 +122,9 @@ class Modelo(object):
 
         return massa == 0.0
 
+
     def porosidade(self, i, j, k, p):
-        poro = self.poro(self.twod_ind(i, j, k))
+        poro = self.poro[self.twod_ind(i, j, k)]
 
         return poro*(1+self.compr*(p-self.pref))
 
@@ -129,10 +133,14 @@ class Modelo(object):
 
         pass
 
+
     def volume(self, i, j, k):
         return self.dx[i]*self.dy[j]*self.dz[k]
 
+
     def calc_residuo(self, pres1, pres0, dt):
+
+        r = []
 
         for ind in xrange(self.numcels):
             i, j, k = self.ind_2d(ind)
@@ -155,8 +163,44 @@ class Modelo(object):
             #Transmissibilidades
             trans = 0
 
-            for vi, vj, vk in self.vizinhos(i,j,k):
-                pass
+
+            #TODO colocar o termo gravitacional
+            if(i > 0):
+                pviz = pres1[self.twod_ind(i-1,j,k)]
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "I-")
+                trans += transmissibilidade*(p1 - pres1[self.twod_ind(i-1,j,k)])
+            if(i < self.nx -1):
+                pviz = pres1[self.twod_ind(i+1,j,k)]
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "I+")
+                trans += transmissibilidade*(p1 - pres1[self.twod_ind(i+1,j,k)])
+            if(j > 0):
+                pviz = pres1[self.twod_ind(i,j-1,k)]
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "J-")
+                trans += transmissibilidade*(p1 - pres1[self.twod_ind(i,j-1,k)])
+            if(j<self.ny-1):
+                pviz = pres1[self.twod_ind(i,j+1,k)]
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "J+")
+                trans += transmissibilidade*(p1 - pres1[self.twod_ind(i,j+1,k)])
+            if(k > 0):
+                pviz = pres1[self.twod_ind(i,j,k-1)]
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "K-")
+                trans += transmissibilidade*(p1 - pres1[self.twod_ind(i,j,k-1)])
+            if(k<self.nz-1):
+                pviz = pres1[self.twod_ind(i,j,k+1)]
+                transmissibilidade = self.calcTrans(i, j, k, p1, pviz, "K+")
+                trans += transmissibilidade*(p1 - pres1[self.twod_ind(i,j,k+1)])
+
+
+            #TODO adicionar o termo dos pocos
+            r.append(trans + acum)
+
+        print r
+
+    def simular(self):
+
+        print self.calc_residuo(self.pres[0], self.pres[0], 10)
+
+
 
 
     def vizinhos(self, i, j, k):
@@ -177,40 +221,65 @@ class Modelo(object):
         return v
 
 
-    def calcTrans(self, i, j, k, dir):
-        visco = self.visco
-        esp = self.esp
-        if dir == "X+":
+
+    def calcTrans(self, i, j, k, p1, pviz, dir):
+
+        k1=None; k2=None; d1=None; d2=None; area=None
+
+        if dir == "I+":
             k1 = self.kx[self.twod_ind(i,j,k)]
             k2 = self.kx[self.twod_ind(i+1,j,k)]
             d1 = self.dx[i]
             d2 = self.dx[i+1]
-            a1 = self.dy[j]
-            return trans(k1,k2,d1,d2,visco,a1,esp)
+            area = self.dy[j]*self.dz[k]
 
-        if dir == "X-":
+        elif dir == "I-":
             k1 = self.kx[self.twod_ind(i,j,k)]
             k2 = self.kx[self.twod_ind(i-1,j,k)]
             d1 = self.dx[i]
             d2 = self.dx[i-1]
-            a1 = self.dy[j]
-            return trans(k1,k2,d1,d2,visco,a1,esp)
+            area = self.dy[j]*self.dz[k]
 
-        if dir == "Y+":
-            k1 = self.ky[self.twod_ind(i,j,k)]
-            k2 = self.ky[self.twod_ind(i,j+1,k)]
-            d1 = self.dy[j]
-            d2 = self.dy[j+1]
-            a1 = self.dx[i]
-            return trans(k1,k2,d1,d2,visco,a1,esp)
-
-        if dir == "Y-":
+        elif dir == "J-":
             k1 = self.ky[self.twod_ind(i,j,k)]
             k2 = self.ky[self.twod_ind(i,j-1,k)]
             d1 = self.dy[j]
             d2 = self.dy[j-1]
-            a1 = self.dx[i]
-            return trans(k1,k2,d1,d2,visco,a1,esp)
+            area = self.dx[i]*self.dz[k]
+
+        elif dir == "J+":
+            k1 = self.ky[self.twod_ind(i,j,k)]
+            k2 = self.ky[self.twod_ind(i,j+1,k)]
+            d1 = self.dy[j]
+            d2 = self.dy[j+1]
+            area = self.dx[i]*self.dz[k]
+
+        elif dir == "K-":
+            k1 = self.kz[self.twod_ind(i,j,k)]
+            k2 = self.kz[self.twod_ind(i,j,k-1)]
+            d1 = self.dz[k]
+            d2 = self.dz[k-1]
+            area = self.dx[i]*self.dy[j]
+
+        elif dir == "K+":
+            k1 = self.kz[self.twod_ind(i,j,k)]
+            k2 = self.kz[self.twod_ind(i,j-1,k)]
+            d1 = self.dz[k]
+            d2 = self.dz[k-1]
+            area = self.dx[i]*self.dy[j]
+
+
+
+        #TODO verificar onde eh calculada a mobilidade.
+        mob1 = self.fluido.mobilidade_massica(p1)
+        mobviz = self.fluido.mobilidade_massica(pviz)
+
+        #TODO verificar se eh media harmonica
+        mob = 2/(1/mob1 + 1/mobviz)
+ 
+        return trans(k1,k2,d1,d2,area)* mob
+
+
 
     def build_matrix(self):
         self.matriz=np.zeros([self.nx*self.ny, self.nx*self.ny])
@@ -266,8 +335,6 @@ class Modelo(object):
         print "Todas as celulas possuem pocos..."
 
 
-
-
     def calc_ld(self):
         ld = np.zeros(self.nx*self.ny)
 
@@ -276,7 +343,6 @@ class Modelo(object):
             ld[ind] = q
 
         self.ld = ld
-
 
 
     def solve(self):
@@ -312,7 +378,7 @@ class LeitorDeArquivo(object):
         return pocos
 
 
-    def read_integers(self, keyword):
+    def read_integers(self, keyword, qtd_expected=None):
         l = self.read_keyword(keyword)
         values = []
 
@@ -325,9 +391,12 @@ class LeitorDeArquivo(object):
             else:
                 values.append(int(x))
 
+        if qtd_expected and len(values)!=qtd_expected:
+            raise Exception("Quantidade esperada para %s eh %d. Quantidade lida %d" % (keyword, qtd_expected, len(values)))
+
         return values
 
-    def read_float(self, keyword):
+    def read_float(self, keyword, qtd_expected=None):
         l = self.read_keyword(keyword)
         values = []
 
@@ -339,6 +408,9 @@ class LeitorDeArquivo(object):
                 values.extend(qtd*[value])
             else:
                 values.append(float(x))
+
+        if qtd_expected and len(values)!=qtd_expected:
+            raise Exception("Quantidade esperada para %s eh %d. Quantidade lida %d" % (keyword, qtd_expected, len(values)))
 
         return values
 
@@ -368,4 +440,6 @@ modelo = Modelo(Leitor)
 print modelo.verificar_compatibilidade()
 
 modelo.print_modelo()
+
+modelo.simular()
 
