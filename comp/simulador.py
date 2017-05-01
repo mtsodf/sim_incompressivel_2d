@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
+from math import sqrt, pow, pi, log
 
 
 
@@ -54,6 +55,22 @@ class Fluido(object):
         return s
 
 
+class Poco(object):
+
+    def __init__(self, nx, ny, nz, radius, pf):
+        self.nx= nx
+        self.ny = ny
+        self.nz = nz
+        self.pf = pf
+        self.radius = radius
+
+    def set_wi(self, kx, ky, dx, dy, h):
+        kfrac = ky/kx
+        req = 0.28*sqrt(sqrt(kfrac)*dx*dx+sqrt(1/kfrac)*dy*dy)
+        req /= (pow(kfrac, 0.25) + pow(1/kfrac, 0.25))
+
+        self.wi = 2*pi*sqrt(kx*ky)*h/log(req/self.radius)
+
 class Modelo(object):
     """docstring for Modelo"""
     def __init__(self, Leitor):
@@ -93,7 +110,20 @@ class Modelo(object):
         self.pocos = Leitor.read_pocos()
 
 
+        self.calc_wis()
 
+
+    def calc_wis(self):
+        for poco in self.pocos:
+            i,j,k = poco.nx, poco.ny, poco.nz
+            ind = self.twod_ind(i,j,k)
+            kx = self.kx[ind]
+            ky = self.ky[ind]
+            dx = self.dx[i]
+            dy = self.dy[j]
+            h = self.dz[k]
+
+            poco.set_wi(kx,ky,dx,dy,h)
 
 
     def print_modelo(self):
@@ -194,13 +224,20 @@ class Modelo(object):
             #TODO adicionar o termo dos pocos
             r.append(trans + acum)
 
-        print r
+        for poco in self.pocos:
+            i,j,k=poco.nx, poco.ny, poco.nz
+
+            ind = self.twod_ind(i,j,k)
+
+            r[ind] -= self.fluido.mobilidade_massica(p1)*poco.wi*(p1-poco.pf)
+
+
+
+        return r
 
     def simular(self):
 
-        print self.calc_residuo(self.pres[0], self.pres[0], 10)
-
-
+       print self.calc_residuo(self.pres[0], self.pres[0], 10)
 
 
     def vizinhos(self, i, j, k):
@@ -219,7 +256,6 @@ class Modelo(object):
             v.append((i,j,k+1))
 
         return v
-
 
 
     def calcTrans(self, i, j, k, p1, pviz, dir):
@@ -369,12 +405,15 @@ class LeitorDeArquivo(object):
         l = self.read_keyword("POCOS", True)
         pocos = []
         for x in l:
-            i, j, vazao = x
+            i, j, k, radius, pf = x
             i = int(i)
             j = int(j)
-            vazao = float(vazao)
+            k = int(k)
+            radius = float(radius)
+            pf = float(pf)
 
-            pocos.append([i, j, vazao])
+            pocos.append(Poco(i, j, k, radius, pf))
+
         return pocos
 
 
@@ -437,7 +476,6 @@ Leitor = LeitorDeArquivo(sys.argv[1])
 
 modelo = Modelo(Leitor)
 
-print modelo.verificar_compatibilidade()
 
 modelo.print_modelo()
 
