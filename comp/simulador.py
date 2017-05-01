@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import linalg as LA
 import sys
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -89,7 +90,7 @@ class Modelo(object):
         self.poro = Leitor.read_float("POR", self.numcels)
         self.pref = Leitor.read_float("PREF")[0]
         self.pres = []
-        self.pres.append(Leitor.read_float("PRES", self.numcels))
+        self.pres.append(np.array(Leitor.read_float("PRES", self.numcels)))
 
 
         #Lendo Tempo
@@ -261,7 +262,7 @@ class Modelo(object):
 
                 #TODO verificar se a mobilidade eh calculada na celula
                 A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
-            
+
             if(k<self.nz-1):
                 indviz = self.twod_ind(i,j,k+1)
                 pviz = pres1[indviz]
@@ -275,7 +276,8 @@ class Modelo(object):
                 #TODO verificar se a mobilidade eh calculada na celula
                 A[ind, indviz] += transmissibilidade*(-self.fluido.mobilidade_massica(p1))
 
-        print A
+
+        return A
 
     def calc_residuo(self, pres1, pres0, dt):
 
@@ -343,13 +345,28 @@ class Modelo(object):
 
 
 
-        return r
+        return np.array(r)
 
     def simular(self):
 
-       print self.calc_residuo(self.pres[0], self.pres[0], 10)
+        cont = 0
 
-       self.calc_jacob(self.pres[0], self.pres[0], 10)
+        self.pres.append(np.copy(self.pres[0]))
+
+        while cont < 100:
+            r = self.calc_residuo(self.pres[1], self.pres[0], 10)
+
+            jac = self.calc_jacob(self.pres[1], self.pres[0], 10)
+
+            dpres = np.linalg.solve(jac, -r)
+
+            self.pres[1] += dpres
+
+
+            if cont%10 == 0:
+                print "%d: norm(r) = %f" % (cont, LA.norm(r))
+
+            cont+=1
 
     def vizinhos(self, i, j, k):
         v = []
